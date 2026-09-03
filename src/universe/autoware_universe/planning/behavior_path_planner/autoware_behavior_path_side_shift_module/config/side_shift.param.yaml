@@ -1,0 +1,15 @@
+/**:
+  ros__parameters:
+    side_shift:
+      min_distance_to_start_shifting: 0.5
+      time_to_start_shifting: 0.1
+      shifting_lateral_jerk: 5.0
+      min_shifting_distance: 0.5
+      min_shifting_speed: 1.39
+      shift_request_time_limit: 1.0
+      drivable_area_check_mode: 1 # 0 = No check, 1 = Only current lane, 2 = Adjacent lanes included
+      min_drivable_area_margin: 0.3
+      publish_debug_marker: false
+      auto_start:
+        enabled: true
+        margin_from_right_boundary: 1.0  # gap from vehicle edge to right road edge [m]
