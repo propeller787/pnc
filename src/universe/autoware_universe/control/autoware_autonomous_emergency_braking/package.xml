@@ -21,8 +21,10 @@
   <test_depend>autoware_lint_common</test_depend>
   <test_depend>autoware_test_utils</test_depend>
 
+  <depend>autoware_adapi_v1_msgs</depend>
   <depend>autoware_control_msgs</depend>
   <depend>autoware_motion_utils</depend>
+  <depend>autoware_perception_msgs</depend>
   <depend>autoware_planning_msgs</depend>
   <depend>autoware_system_msgs</depend>
   <depend>autoware_test_utils</depend>

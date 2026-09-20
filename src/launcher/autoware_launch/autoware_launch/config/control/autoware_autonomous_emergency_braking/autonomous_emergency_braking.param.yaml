@@ -1,0 +1,7 @@
+/**:
+  ros__parameters:
+    # Near-field AEB: 连续 N 帧 near_obstacle 非空则停车，空持续 release_time_sec 后放行
+    enable_frames: 2
+    release_time_sec: 2.0
+    stop_acceleration: -3.0
+    aeb_hz: 10.0

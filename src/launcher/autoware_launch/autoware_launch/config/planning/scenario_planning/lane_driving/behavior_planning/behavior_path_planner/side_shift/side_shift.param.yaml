@@ -1,0 +1,15 @@
+/**:
+  ros__parameters:
+    side_shift:
+      min_distance_to_start_shifting: 0.5
+      time_to_start_shifting: 0.1
+      shifting_lateral_jerk: 5.0
+      min_shifting_distance: 0.5
+      min_shifting_speed: 1.39
+      shift_request_time_limit: 1.0
+      drivable_area_check_mode: 1  # 1=仅当前车道边界钳制（恢复安全兜底，配合自动贴边）
+      min_drivable_area_margin: 0.3
+      publish_debug_marker: false
+      auto_start:
+        enabled: true
+        margin_from_right_boundary: 1.0  # gap from vehicle edge to right road edge [m]

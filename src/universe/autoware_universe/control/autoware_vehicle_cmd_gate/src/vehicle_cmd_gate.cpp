@@ -113,6 +113,13 @@ VehicleCmdGate::VehicleCmdGate(const rclcpp::NodeOptions & node_options)
   mrm_state_sub_ = create_subscription<MrmState>(
     "input/mrm_state", 1, std::bind(&VehicleCmdGate::onMrmState, this, _1));
 
+  rclcpp::QoS aeb_qos{1};
+  aeb_qos.transient_local();
+  aeb_stop_sub_ = create_subscription<Bool>(
+    "input/aeb_stop", aeb_qos, std::bind(&VehicleCmdGate::onAebStop, this, _1));
+  aeb_control_cmd_sub_ = create_subscription<Control>(
+    "input/aeb/control_cmd", rclcpp::QoS{1}, std::bind(&VehicleCmdGate::onAebControlCmd, this, _1));
+
   // Subscriber for auto
   auto_control_cmd_sub_ = create_subscription<Control>(
     "input/auto/control_cmd", 1, std::bind(&VehicleCmdGate::onAutoCtrlCmd, this, _1));
@@ -137,6 +144,8 @@ VehicleCmdGate::VehicleCmdGate(const rclcpp::NodeOptions & node_options)
   emergency_acceleration_ = declare_parameter<double>("emergency_acceleration");
   moderate_stop_service_acceleration_ =
     declare_parameter<double>("moderate_stop_service_acceleration");
+  aeb_stop_acceleration_ = declare_parameter<double>("aeb_stop_acceleration", -3.0);
+  aeb_cmd_acceleration_.store(static_cast<float>(aeb_stop_acceleration_), std::memory_order_relaxed);
   stop_check_duration_ = declare_parameter<double>("stop_check_duration");
   enable_cmd_limit_filter_ = declare_parameter<bool>("enable_cmd_limit_filter");
   filter_activated_count_threshold_ = declare_parameter<int>("filter_activated_count_threshold");
@@ -256,6 +265,7 @@ rcl_interfaces::msg::SetParametersResult VehicleCmdGate::onParameter(
   update_param<double>(parameters, "emergency_acceleration", emergency_acceleration_);
   update_param<double>(
     parameters, "moderate_stop_service_acceleration", moderate_stop_service_acceleration_);
+  update_param<double>(parameters, "aeb_stop_acceleration", aeb_stop_acceleration_);
   update_param<double>(parameters, "stop_check_duration", stop_check_duration_);
   update_param<bool>(parameters, "enable_cmd_limit_filter", enable_cmd_limit_filter_);
   update_param<int>(
@@ -618,6 +628,22 @@ void VehicleCmdGate::publishControlCommands(const Commands & commands)
     filtered_control = filterControlCommand(filtered_control);
     filtered_control.stamp = commands.control.stamp;
   }
+
+  // Near-field AEB: override longitudinal after the filter so max decel is not softened.
+  // Lateral command is kept so steering is not forced to zero.
+  if (is_aeb_stop_.load(std::memory_order_relaxed)) {
+    const float aeb_acc = aeb_cmd_acceleration_.load(std::memory_order_relaxed);
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), std::chrono::milliseconds(1000).count(),
+      "AEB stop: velocity=0, acceleration=%.1f", aeb_acc);
+    filtered_control.longitudinal.velocity = 0.0;
+    filtered_control.longitudinal.acceleration = aeb_acc;
+    filtered_control.longitudinal.jerk = 0.0;
+    filtered_control.longitudinal.is_defined_acceleration = true;
+    filtered_control.longitudinal.is_defined_jerk = false;
+    filtered_control.longitudinal.stamp = this->now();
+    filtered_control.longitudinal.control_time = filtered_control.longitudinal.stamp;
+  }
   // tmp: Publish vehicle emergency status
   VehicleEmergencyStamped vehicle_cmd_emergency;
   vehicle_cmd_emergency.emergency = (use_emergency_handling_ && is_system_emergency_);
@@ -820,6 +846,25 @@ void VehicleCmdGate::onMrmState(MrmState::ConstSharedPtr msg)
      msg->state == MrmState::MRM_FAILED) &&
     (msg->behavior == MrmState::EMERGENCY_STOP);
   emergency_state_heartbeat_received_time_ = std::make_shared<rclcpp::Time>(this->now());
+}
+
+void VehicleCmdGate::onAebControlCmd(Control::ConstSharedPtr msg)
+{
+  aeb_cmd_acceleration_.store(msg->longitudinal.acceleration, std::memory_order_relaxed);
+}
+
+void VehicleCmdGate::onAebStop(Bool::ConstSharedPtr msg)
+{
+  const bool requested = msg->data;
+  const bool prev = is_aeb_stop_.exchange(requested, std::memory_order_relaxed);
+  if (requested == prev) {
+    return;
+  }
+  if (current_gate_mode_.data == GateMode::AUTO) {
+    publishControlCommands(auto_commands_);
+  } else if (current_gate_mode_.data == GateMode::EXTERNAL) {
+    publishControlCommands(remote_commands_);
+  }
 }
 
 double VehicleCmdGate::getDt()

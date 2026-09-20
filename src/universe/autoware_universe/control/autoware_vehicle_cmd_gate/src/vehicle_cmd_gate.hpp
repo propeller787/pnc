@@ -41,6 +41,7 @@
 #include <autoware_vehicle_msgs/msg/steering_report.hpp>
 #include <autoware_vehicle_msgs/msg/turn_indicators_command.hpp>
 #include <geometry_msgs/msg/accel_with_covariance_stamped.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <tier4_control_msgs/msg/gate_mode.hpp>
@@ -51,6 +52,7 @@
 #include <tier4_vehicle_msgs/msg/vehicle_emergency_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -64,6 +66,7 @@ using autoware_control_msgs::msg::Control;
 using autoware_control_msgs::msg::Longitudinal;
 using autoware_internal_debug_msgs::msg::BoolStamped;
 using autoware_vehicle_cmd_gate::msg::IsFilterActivated;
+using std_msgs::msg::Bool;
 using autoware_vehicle_msgs::msg::GearCommand;
 using autoware_vehicle_msgs::msg::HazardLightsCommand;
 using autoware_vehicle_msgs::msg::SteeringReport;
@@ -127,6 +130,8 @@ private:
   rclcpp::Subscription<GateMode>::SharedPtr gate_mode_sub_;
   rclcpp::Subscription<OperationModeState>::SharedPtr operation_mode_sub_;
   rclcpp::Subscription<MrmState>::SharedPtr mrm_state_sub_;
+  rclcpp::Subscription<Bool>::SharedPtr aeb_stop_sub_;
+  rclcpp::Subscription<Control>::SharedPtr aeb_control_cmd_sub_;
   rclcpp::Subscription<Odometry>::SharedPtr kinematics_sub_;             // for filter
   rclcpp::Subscription<AccelWithCovarianceStamped>::SharedPtr acc_sub_;  // for filter
   rclcpp::Subscription<SteeringReport>::SharedPtr steer_sub_;            // for filter
@@ -134,10 +139,14 @@ private:
   void onGateMode(GateMode::ConstSharedPtr msg);
   void onExternalEmergencyStopHeartbeat(Heartbeat::ConstSharedPtr msg);
   void onMrmState(MrmState::ConstSharedPtr msg);
+  void onAebStop(Bool::ConstSharedPtr msg);
+  void onAebControlCmd(Control::ConstSharedPtr msg);
 
   bool is_engaged_;
   bool is_system_emergency_ = false;
   bool is_external_emergency_stop_ = false;
+  std::atomic<bool> is_aeb_stop_{false};
+  std::atomic<float> aeb_cmd_acceleration_{-3.0F};
   double current_steer_ = 0;
   GateMode current_gate_mode_;
   MrmState current_mrm_state_;
@@ -202,6 +211,7 @@ private:
   double stop_hold_acceleration_;
   double emergency_acceleration_;
   double moderate_stop_service_acceleration_;
+  double aeb_stop_acceleration_;
   bool enable_cmd_limit_filter_;
   int filter_activated_count_threshold_;
   double filter_activated_velocity_threshold_;
