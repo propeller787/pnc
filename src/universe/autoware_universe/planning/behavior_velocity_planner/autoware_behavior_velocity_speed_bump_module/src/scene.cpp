@@ -15,13 +15,21 @@
 #include "scene.hpp"
 
 #include "autoware/motion_utils/trajectory/trajectory.hpp"
+#include "autoware/universe_utils/geometry/geometry.hpp"
 #include "autoware_utils/geometry/geometry.hpp"
 #include "util.hpp"
 
+#include <autoware_perception_msgs/msg/object_classification.hpp>
+#include <autoware_perception_msgs/msg/predicted_objects.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <limits>
 #include <memory>
+#include <optional>
+#include <tuple>
 #include <utility>
 
 namespace autoware::behavior_velocity_planner
@@ -100,13 +108,21 @@ bool SpeedBumpModule::modifyPathVelocity(PathWithLaneId * path)
     debug_data_.speed_bump_polygon.push_back(create_point(p.x(), p.y(), ego_pos.z));
   }
 
-  return applySlowDownSpeed(*path, speed_bump_slow_down_speed_, path_polygon_intersection_status);
+  // Decelerate -> cruise -> accelerate over the bump; this also records the slow-zone indices.
+  const bool modified = applySlowDownSpeed(
+    *path, speed_bump_slow_down_speed_, path_polygon_intersection_status);
+
+  // Stop outside the zone for a pedestrian, or laterally avoid a static obstacle blocking it.
+  applyObjectHandling(*path);
+
+  return modified;
 }
 
 bool SpeedBumpModule::applySlowDownSpeed(
   PathWithLaneId & output, const float speed_bump_speed,
   const PathPolygonIntersectionStatus & path_polygon_intersection_status)
 {
+  slow_zone_ = SlowZone{};
   if (isNoRelation(path_polygon_intersection_status)) {
     return false;
   }
@@ -171,9 +187,37 @@ bool SpeedBumpModule::applySlowDownSpeed(
     slow_end_point_idx = output.points.size() - 1;
   }
 
-  // insert constant speed to path points that intersects with speed bump area
-  return insertConstSpeedToPathSection(
-    output.points, slow_start_point_idx, slow_end_point_idx, speed_bump_speed);
+  // cruise over the speed bump, with a constant-deceleration ramp before and a
+  // constant-acceleration ramp after it
+  if (!insertSlowDownSpeedProfile(
+        output.points, slow_start_point_idx, slow_end_point_idx, speed_bump_speed,
+        planner_param_.deceleration, planner_param_.acceleration)) {
+    return false;
+  }
+
+  slow_zone_ = SlowZone{true, slow_start_point_idx, slow_end_point_idx};
+  return true;
+}
+
+void SpeedBumpModule::applyObjectHandling(PathWithLaneId & output)
+{
+  if (!planner_param_.object_handling.enable || !planner_data_->predicted_objects) {
+    return;
+  }
+
+  const auto result = handleObjectsInSlowZone(
+    output, output.left_bound, output.right_bound, slow_zone_, planner_param_.object_handling,
+    *planner_data_->predicted_objects, planner_data_->vehicle_info_.vehicle_width_m / 2.0);
+
+  if (result.stop_position) {
+    debug_data_.object_stop_poses.push_back(*result.stop_position);
+  }
+  if (result.shift_result == LateralShiftResult::kInsufficientRoom) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 5000,
+      "speed_bump: no room to avoid the obstacle inside the drivable area. Stopping before the "
+      "slow zone instead.");
+  }
 }
 
 }  // namespace autoware::behavior_velocity_planner

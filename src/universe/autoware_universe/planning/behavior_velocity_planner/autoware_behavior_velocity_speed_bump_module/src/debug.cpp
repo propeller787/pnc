@@ -76,6 +76,17 @@ visualization_msgs::msg::MarkerArray createSpeedBumpMarkers(
     msg.markers.push_back(marker);
   }
 
+  // Object (pedestrian) stop points
+  if (!debug_data.object_stop_poses.empty()) {
+    auto marker = create_default_marker(
+      "map", now, "object stop points", uid, Marker::SPHERE_LIST,
+      create_marker_scale(0.3, 0.3, 0.0), create_marker_color(1.0, 0.2, 0.0, 0.999));
+    for (const auto & p : debug_data.object_stop_poses) {
+      marker.points.push_back(create_point(p.x, p.y, p.z));
+    }
+    msg.markers.push_back(marker);
+  }
+  
   // Path - polygon intersection points
   {
     auto marker = create_default_marker(

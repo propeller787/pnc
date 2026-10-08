@@ -76,6 +76,17 @@ visualization_msgs::msg::MarkerArray createSpeedBumpMarkers(
     msg.markers.push_back(marker);
   }
 
+  // Object (pedestrian) stop points
+  if (!debug_data.object_stop_poses.empty()) {
+    auto marker = create_default_marker(
+      "map", now, "object stop points", uid, Marker::SPHERE_LIST,
+      create_marker_scale(0.3, 0.3, 0.0), create_marker_color(1.0, 0.2, 0.0, 0.999));
+    for (const auto & p : debug_data.object_stop_poses) {
+      marker.points.push_back(create_point(p.x, p.y, p.z));
+    }
+    msg.markers.push_back(marker);
+  }
+
   // Path - polygon intersection points
   {
     auto marker = create_default_marker(
@@ -169,6 +180,9 @@ bool SpeedBumpModule::modifyPathVelocity(
     return false;
   }
 
+  // Stop outside the zone for a pedestrian, or laterally avoid a static obstacle blocking it.
+  applyObjectHandling(path_msg, left_bound, right_bound, planner_data);
+
   planning_utils::toTrajectory(path_msg, path);
   return true;
 }
@@ -242,9 +256,39 @@ bool SpeedBumpModule::applySlowDownSpeed(
     slow_end_point_idx = output.points.size() - 1;
   }
 
-  // insert constant speed to path points that intersects with speed bump area
-  return insertConstSpeedToPathSection(
-    output.points, slow_start_point_idx, slow_end_point_idx, speed_bump_speed);
+  // cruise over the speed bump, with a constant-deceleration ramp before and a
+  // constant-acceleration ramp after it
+  if (!insertSlowDownSpeedProfile(
+        output.points, slow_start_point_idx, slow_end_point_idx, speed_bump_speed,
+        planner_param_.deceleration, planner_param_.acceleration)) {
+    return false;
+  }
+
+  slow_zone_ = SlowZone{true, slow_start_point_idx, slow_end_point_idx};
+  return true;
+}
+
+void SpeedBumpModule::applyObjectHandling(
+  PathWithLaneId & output, const std::vector<geometry_msgs::msg::Point> & left_bound,
+  const std::vector<geometry_msgs::msg::Point> & right_bound, const PlannerData & planner_data)
+{
+  if (!planner_param_.object_handling.enable || !planner_data.predicted_objects) {
+    return;
+  }
+
+  const auto result = handleObjectsInSlowZone(
+    output, left_bound, right_bound, slow_zone_, planner_param_.object_handling,
+    *planner_data.predicted_objects, planner_data.vehicle_info_.vehicle_width_m / 2.0);
+
+  if (result.stop_position) {
+    debug_data_.object_stop_poses.push_back(*result.stop_position);
+  }
+  if (result.shift_result == LateralShiftResult::kInsufficientRoom) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 5000,
+      "speed_bump: no room to avoid the obstacle inside the drivable area. Stopping before the "
+      "slow zone instead.");
+  }
 }
 
 autoware::motion_utils::VirtualWalls SpeedBumpModule::createVirtualWalls()

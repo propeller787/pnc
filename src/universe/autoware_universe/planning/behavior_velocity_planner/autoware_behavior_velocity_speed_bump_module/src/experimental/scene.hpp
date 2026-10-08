@@ -39,17 +39,26 @@ public:
     std::vector<geometry_msgs::msg::Pose> slow_start_poses;
     std::vector<geometry_msgs::msg::Point> slow_end_points;
     std::vector<geometry_msgs::msg::Point> speed_bump_polygon;
+    // positions where the ego is asked to stop while waiting for a pedestrian to leave the zone
+    std::vector<geometry_msgs::msg::Point> object_stop_poses;
   };
 
   struct PlannerParam
   {
     double slow_start_margin;
     double slow_end_margin;
+    // Acceleration magnitudes [m/s^2] of the approach/exit ramp around the cruise (low-speed)
+    // zone. See src/scene.hpp for the full description of the profile.
+    double deceleration;
+    double acceleration;
     bool print_debug_info;
     float speed_calculation_min_height;
     float speed_calculation_max_height;
     float speed_calculation_min_speed;
     float speed_calculation_max_speed;
+
+    // Object handling inside the slow zone: stop for a pedestrian, avoid a static obstacle.
+    ObjectHandlingParam object_handling;
   };
 
   SpeedBumpModule(
@@ -85,7 +94,15 @@ private:
     const PathPolygonIntersectionStatus & path_polygon_intersection_status,
     const PlannerData & planner_data);
 
+  // Stop for a pedestrian inside the zone, or drive around a static obstacle blocking it.
+  void applyObjectHandling(
+    PathWithLaneId & output, const std::vector<geometry_msgs::msg::Point> & left_bound,
+    const std::vector<geometry_msgs::msg::Point> & right_bound, const PlannerData & planner_data);
+
   float speed_bump_slow_down_speed_;
+
+  // cruise part of the zone, recorded by applySlowDownSpeed and used by the object handling
+  SlowZone slow_zone_;
 };
 
 }  // namespace autoware::behavior_velocity_planner::experimental

@@ -14,11 +14,13 @@ the reference path.
 
 ### Module Parameters
 
-| Parameter           | Type   | Description                                               |
-| ------------------- | ------ | --------------------------------------------------------- |
-| `slow_start_margin` | double | [m] margin for ego vehicle to slow down before speed_bump |
-| `slow_end_margin`   | double | [m] margin for ego vehicle to accelerate after speed_bump |
-| `print_debug_info`  | bool   | whether debug info will be printed or not                 |
+| Parameter                 | Type   | Description                                               |
+| ------------------------- | ------ | --------------------------------------------------------- |
+| `slow_start_margin`       | double | [m] margin for ego vehicle to slow down before speed_bump |
+| `slow_end_margin`         | double | [m] margin for ego vehicle to accelerate after speed_bump |
+| `deceleration`            | double | deceleration of the approach ramp [m/s^2]                 |
+| `acceleration`            | double | acceleration of the exit ramp [m/s^2]                     |
+| `print_debug_info`        | bool   | whether debug info will be printed or not                 |
 
 #### Speed Calculation
 
@@ -30,6 +32,16 @@ the reference path.
 | `max_height` | double | [m] maximum height assumption of the speed bump   |
 | `min_speed`  | double | [m/s] minimum speed assumption of slow down speed |
 | `max_speed`  | double | [m/s] maximum speed assumption of slow down speed |
+
+**Note:** `min_speed` and `max_speed` are both pinned to 0.6944 m/s (2.5 kph), so every bump is
+driven over at 2.5 kph and the height annotated in the map no longer changes the speed. Set them
+apart again to recover the upstream height -> speed mapping.
+
+A parameter that is missing from the parameter file falls back to a built-in default instead of
+aborting the planner (a missing key used to take down the whole `behavior_planning` container with
+`UninitializedStaticallyTypedParameterException`). The fallback is degraded, not equivalent: the
+approach/exit ramps are switched off and object handling is disabled, and a warning names every
+parameter that has to be added to the parameter file.
 
 ### Inner-workings / Algorithms
 
@@ -52,6 +64,24 @@ is being used.
 ![speed_bump_scenarios.svg](docs/speed_bump_scenarios.svg)
 
 - Assign `slow_down_speed` to the path points between `slow_start_point` or `slow_end_point`
+- Additionally ramp the velocity down to `slow_down_speed` with constant deceleration `deceleration`
+  before `slow_start_point`, and back up with constant acceleration `acceleration` after
+  `slow_end_point`. The ramp length follows from the path's own velocity as
+  (v_ref^2 - v_slow^2) / (2*a). Every path point keeps the lower of its original velocity and the
+  ramped one, so a stricter limit that is already set downstream is never raised.
+
+### Object handling inside the slow zone
+
+When `object_handling_enable` is set:
+
+- a pedestrian inside the zone makes the ego stop `stop_margin` before the zone and wait for it to
+  leave
+- a static obstacle blocking the zone makes the ego shift the path laterally around it
+
+The lateral shift modifies the path geometry, so it is clipped to the drivable area carried by the
+path itself (`left_bound` / `right_bound`) minus half the vehicle width. If the path has no bounds,
+or the obstacle cannot be cleared inside them, or the required shift exceeds `lateral_max_offset`,
+the module falls back to stopping before the zone.
 
 ### Future Work
 

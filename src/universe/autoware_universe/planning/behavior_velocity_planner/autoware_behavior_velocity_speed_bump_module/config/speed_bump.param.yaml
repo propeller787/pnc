@@ -1,13 +1,42 @@
 /**:
   ros__parameters:
     speed_bump:
-      slow_start_margin: 1.0
-      slow_end_margin: 1.0
+      slow_start_margin: 3.0
+      slow_end_margin: 3.0
+      # acceleration magnitudes [m/s^2] of the approach/exit ramp around the low-speed cruise zone.
+      # The ego decelerates with constant deceleration down to the low speed, cruises at the low
+      # speed over the bump, then accelerates back up with constant acceleration.
+      # The ramps only ever lower the velocity, so an existing lower limit is preserved.
+      deceleration: 0.5
+      acceleration: 0.5
       print_debug_info: false
 
-      # limits for speed bump height and slow down speed to create a linear equation
+      # Object handling inside the slow zone:
+      #   - a pedestrian inside the zone -> stop OUTSIDE the zone and wait for it to leave
+      #   - a static obstacle blocking the zone -> laterally shift the path and keep going
+      object_handling_enable: true      # master switch for object handling
+      pedestrian_stop_enable: true      # stop outside the zone while a pedestrian is inside it
+      static_object_avoid_enable: true  # laterally avoid a static obstacle blocking the zone
+                                        # NOTE: this shifts the path points. The shift is clipped
+                                        # to the path's left_bound/right_bound minus half the
+                                        # vehicle width; if the path carries no bounds, or the
+                                        # obstacle cannot be cleared inside them, the module stops
+                                        # before the zone instead.
+      detect_expansion_margin: 1.0      # [m] expand the slow zone ahead/behind for detection
+      stop_margin: 0.5                  # [m] distance of the stop point before the slow zone start
+      lateral_max_offset: 2.0           # [m] max lateral shift for static obstacle avoidance
+      lateral_avoid_length: 6.0         # [m] longitudinal window length of the avoid shift
+      lateral_clearance: 0.3            # [m] lateral clearance beyond the avoided object
+      lateral_blocking_width: 1.0       # [m] half band around the path treated as blocking the ego
+      static_velocity_threshold: 0.05   # [m/s] below which an object is considered static
+
+      # Speed to cruise over a speed bump. The requirement is a flat 2.5 kph on every bump, so
+      # min_speed == max_speed: calcSlowDownSpeed() then clamps to that single value no matter what
+      # height the bump carries in the map. The height limits are kept as the interpolation bounds
+      # but no longer influence the result. Set them apart again to recover the upstream
+      # height -> speed mapping (steeper bump == slower).
       speed_calculation:
         min_height: 0.05 # [m]
         max_height: 0.30 # [m]
-        min_speed: 1.39  # [m/s] = [5 kph]
-        max_speed: 2.78  # [m/s] = [10 kph]
+        min_speed: 0.6944  # [m/s] = 2.5 kph
+        max_speed: 0.6944  # [m/s] = 2.5 kph
