@@ -2,7 +2,7 @@
 """Verify the speed-bump slow-down profile from a recorded rosbag.
 
 For every speed bump of the map it reports the planned velocity around the bump and checks that
-  - the ego cruises at `--slow-speed` (default 2.5 kph = 0.6944 m/s) through the bump and its
+  - the ego cruises at `--slow-speed` (default 2.3 kph = 0.6389 m/s) through the bump and its
     slow_start_margin / slow_end_margin extension,
   - it decelerates with a constant deceleration down to that speed before the zone,
   - it accelerates with a constant acceleration back up after it,
@@ -177,7 +177,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bag", required=True)
     ap.add_argument("--map", required=True)
-    ap.add_argument("--slow-speed", type=float, default=0.6944, help="[m/s] expected cruise speed")
+    ap.add_argument("--slow-speed", type=float, default=0.6389, help="[m/s] expected cruise speed")
     ap.add_argument("--deceleration", type=float, default=0.5, help="[m/s^2] configured approach a")
     ap.add_argument("--acceleration", type=float, default=0.5, help="[m/s^2] configured exit a")
     ap.add_argument("--topic", default=None)

@@ -33,8 +33,8 @@ the reference path.
 | `min_speed`  | double | [m/s] minimum speed assumption of slow down speed |
 | `max_speed`  | double | [m/s] maximum speed assumption of slow down speed |
 
-**Note:** `min_speed` and `max_speed` are both pinned to 0.6944 m/s (2.5 kph), so every bump is
-driven over at 2.5 kph and the height annotated in the map no longer changes the speed. Set them
+**Note:** `min_speed` and `max_speed` are both pinned to 0.6389 m/s (2.3 kph), so every bump is
+driven over at 2.3 kph and the height annotated in the map no longer changes the speed. Set them
 apart again to recover the upstream height -> speed mapping.
 
 A parameter that is missing from the parameter file falls back to a built-in default instead of

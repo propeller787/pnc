@@ -76,9 +76,9 @@ SpeedBumpModuleManager::SpeedBumpModuleManager(rclcpp::Node & node)
   planner_param_.speed_calculation_max_height =
     static_cast<float>(get_parameter_or_default<double>(node, ns + ".max_height", 0.30));
   planner_param_.speed_calculation_min_speed =
-    static_cast<float>(get_parameter_or_default<double>(node, ns + ".min_speed", 0.6944));
+    static_cast<float>(get_parameter_or_default<double>(node, ns + ".min_speed", 0.6389));
   planner_param_.speed_calculation_max_speed =
-    static_cast<float>(get_parameter_or_default<double>(node, ns + ".max_speed", 0.6944));
+    static_cast<float>(get_parameter_or_default<double>(node, ns + ".max_speed", 0.6389));
 }
 
 void SpeedBumpModuleManager::launchNewModules(

@@ -1,8 +1,8 @@
 /**:
   ros__parameters:
     speed_bump:
-      slow_start_margin: 3.0
-      slow_end_margin: 3.0
+      slow_start_margin: 5.0
+      slow_end_margin: 5.0
       # acceleration magnitudes [m/s^2] of the approach/exit ramp around the low-speed cruise zone.
       # The ego decelerates with constant deceleration down to the low speed, cruises at the low
       # speed over the bump, then accelerates back up with constant acceleration.
@@ -30,7 +30,7 @@
       lateral_blocking_width: 1.0       # [m] half band around the path treated as blocking the ego
       static_velocity_threshold: 0.05   # [m/s] below which an object is considered static
 
-      # Speed to cruise over a speed bump. The requirement is a flat 2.5 kph on every bump, so
+      # Speed to cruise over a speed bump. The requirement is a flat 2.3 kph on every bump, so
       # min_speed == max_speed: calcSlowDownSpeed() then clamps to that single value no matter what
       # height the bump carries in the map. The height limits are kept as the interpolation bounds
       # but no longer influence the result. Set them apart again to recover the upstream
@@ -38,5 +38,5 @@
       speed_calculation:
         min_height: 0.05 # [m]
         max_height: 0.30 # [m]
-        min_speed: 0.6944  # [m/s] = 2.5 kph
-        max_speed: 0.6944  # [m/s] = 2.5 kph
+        min_speed: 0.6389  # [m/s] = 2.3 kph
+        max_speed: 0.6389  # [m/s] = 2.3 kph
