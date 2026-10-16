@@ -105,9 +105,24 @@ public:
   static bool isNoDrivableLane(const lanelet::ConstLanelet & llt);
 
   // for routing
+  /**
+   * @brief Plans the shortest path lanelets between two checkpoints.
+   * @param allow_uturn if false, synthesized U-turn lanelets are not traversed at all, so only
+   * routes that can be driven forward are returned. Callers first try with false and retry with
+   * true, which is what makes a U-turn happen only when there is no forward route.
+   * @param route_length optional output: length of the planned path, used to compare a forward
+   * route with a route through a U-turn.
+   */
   bool planPathLaneletsBetweenCheckpoints(
     const Pose & start_checkpoint, const Pose & goal_checkpoint,
-    lanelet::ConstLanelets * path_lanelets, const bool consider_no_drivable_lanes = false) const;
+    lanelet::ConstLanelets * path_lanelets, const bool consider_no_drivable_lanes = false,
+    const bool allow_uturn = true, double * route_length = nullptr) const;
+
+  //! @brief returns true if the loaded map contains synthesized U-turn lanelets
+  //!
+  //! This is computed on demand instead of being cached in a member, because adding members to
+  //! this class changes its layout and thereby forces every dependent package to be rebuilt.
+  bool hasUturnLanelets() const;
   std::vector<LaneletSegment> createMapSegments(const lanelet::ConstLanelets & path_lanelets) const;
   static bool isRouteLooped(const RouteSections & route_sections);
 

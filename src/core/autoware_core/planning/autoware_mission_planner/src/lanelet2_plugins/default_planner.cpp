@@ -89,6 +89,8 @@ void DefaultPlanner::initialize_common(rclcpp::Node * node)
   param_.consider_no_drivable_lanes = node_->declare_parameter<bool>("consider_no_drivable_lanes");
   param_.check_footprint_inside_lanes =
     node_->declare_parameter<bool>("check_footprint_inside_lanes");
+  param_.enable_uturn_fallback = node_->declare_parameter<bool>("enable_uturn_fallback", true);
+  param_.max_forward_detour_ratio = node_->declare_parameter<double>("max_forward_detour_ratio", 0.0);
 }
 
 void DefaultPlanner::initialize(rclcpp::Node * node)
@@ -344,20 +346,70 @@ PlannerPlugin::LaneletRoute DefaultPlanner::plan(const RoutePoints & points)
   RouteSections route_sections;
 
   lanelet::ConstLanelets all_route_lanelets;
-  for (std::size_t i = 1; i < points.size(); i++) {
-    const auto start_check_point = points.at(i - 1);
-    const auto goal_check_point = points.at(i);
-    lanelet::ConstLanelets path_lanelets;
-    if (!route_handler_.planPathLaneletsBetweenCheckpoints(
-          start_check_point, goal_check_point, &path_lanelets, param_.consider_no_drivable_lanes)) {
+  // Collects the lanelets of every leg and the total length of the resulting route. With
+  // allow_uturn == false only routes that can be driven forward are returned, so the U-turn
+  // lanelets of the map are not used at all.
+  const auto build_route_lanelets = [&](
+                                      const bool allow_uturn,
+                                      lanelet::ConstLanelets * route_lanelets,
+                                      double * route_length) -> bool {
+    route_lanelets->clear();
+    if (route_length) {
+      *route_length = 0.0;
+    }
+    for (std::size_t i = 1; i < points.size(); i++) {
+      const auto start_check_point = points.at(i - 1);
+      const auto goal_check_point = points.at(i);
+      lanelet::ConstLanelets path_lanelets;
+      double path_length = 0.0;
+      if (!route_handler_.planPathLaneletsBetweenCheckpoints(
+            start_check_point, goal_check_point, &path_lanelets,
+            param_.consider_no_drivable_lanes, allow_uturn, &path_length)) {
+        return false;
+      }
+      if (route_length) {
+        *route_length += path_length;
+      }
+
+      for (const auto & lane : path_lanelets) {
+        if (!route_lanelets->empty() && lane.id() == route_lanelets->back().id()) continue;
+        route_lanelets->push_back(lane);
+      }
+    }
+    return true;
+  };
+
+  // only use the U-turn lanelets when the map actually has some, so that the behavior and the logs
+  // are unchanged for maps without any U-turn spot
+  const bool uturn_available = param_.enable_uturn_fallback && route_handler_.hasUturnLanelets();
+
+  double forward_length = 0.0;
+  if (build_route_lanelets(false, &all_route_lanelets, &forward_length)) {
+    // A forward route exists. Keep it unless a U-turn shortens the route drastically;
+    // max_forward_detour_ratio == 0 keeps the forward route always.
+    lanelet::ConstLanelets uturn_route_lanelets;
+    double uturn_length = 0.0;
+    if (
+      uturn_available && param_.max_forward_detour_ratio > 0.0 &&
+      build_route_lanelets(true, &uturn_route_lanelets, &uturn_length) &&
+      forward_length > param_.max_forward_detour_ratio * uturn_length) {
+      RCLCPP_INFO(
+        logger,
+        "The forward route (%.1f m) is longer than %.1f times the route with a U-turn (%.1f m). "
+        "Planning with a U-turn.",
+        forward_length, param_.max_forward_detour_ratio, uturn_length);
+      all_route_lanelets = uturn_route_lanelets;
+    }
+  } else if (uturn_available) {
+    // no forward route exists, so a U-turn is required to reach the goal
+    RCLCPP_INFO(logger, "No route without a U-turn exists. Planning with a U-turn.");
+    if (!build_route_lanelets(true, &all_route_lanelets, nullptr)) {
       RCLCPP_WARN(logger, "Failed to plan route.");
       return route_msg;
     }
-
-    for (const auto & lane : path_lanelets) {
-      if (!all_route_lanelets.empty() && lane.id() == all_route_lanelets.back().id()) continue;
-      all_route_lanelets.push_back(lane);
-    }
+  } else {
+    RCLCPP_WARN(logger, "Failed to plan route.");
+    return route_msg;
   }
   route_handler_.setRouteLanelets(all_route_lanelets);
   route_sections = route_handler_.createMapSegments(all_route_lanelets);

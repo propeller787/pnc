@@ -29,7 +29,9 @@ rclcpp_components_register_node(pointcloud_map_loader_node
 
 ament_auto_add_library(lanelet2_map_loader_node SHARED
   src/lanelet2_map_loader/lanelet2_map_loader_node.cpp
+  src/lanelet2_map_loader/uturn_lanelet_injector.cpp
 )
+target_link_libraries(lanelet2_map_loader_node yaml-cpp)
 
 rclcpp_components_register_node(lanelet2_map_loader_node
   PLUGIN "autoware::map_loader::Lanelet2MapLoaderNode"
@@ -59,6 +61,7 @@ if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
   add_testcase(test/test_cylinder_box_overlap.cpp)
+  add_testcase(test/test_uturn_lanelet_injector.cpp)
   add_testcase(test/test_replace_with_absolute_path.cpp)
   add_testcase(test/test_load_pcd_metadata.cpp)
   add_testcase(test/test_pointcloud_map_loader_module.cpp)

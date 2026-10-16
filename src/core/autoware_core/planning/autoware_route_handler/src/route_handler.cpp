@@ -74,6 +74,40 @@ using autoware_utils_geometry::create_quaternion_from_yaw;
 using geometry_msgs::msg::Pose;
 using lanelet::utils::to2D;
 
+//! attribute of the U-turn lanelets synthesized by autoware_map_loader
+//! (see autoware/map_loader/uturn_lanelet_injector.hpp)
+constexpr const char * kUturnAttribute = "autoware_uturn";
+
+bool isUturnLanelet(const lanelet::ConstLanelet & lanelet)
+{
+  return lanelet.hasAttribute(kUturnAttribute) &&
+         lanelet.attribute(kUturnAttribute).value() == "yes";
+}
+
+//! true if the map contains at least one synthesized U-turn lanelet
+bool has_uturn_lanelets(const lanelet::LaneletMapPtr & map)
+{
+  return std::any_of(
+    map->laneletLayer.begin(), map->laneletLayer.end(),
+    [](const lanelet::Lanelet & lanelet) { return isUturnLanelet(lanelet); });
+}
+
+//! builds a routing graph that contains every lanelet of the map except the synthesized U-turn
+//! lanelets. The lanelets keep their original point objects, so all relations of the remaining
+//! lanelets are identical to the ones in the original graph.
+lanelet::routing::RoutingGraphConstPtr build_uturn_free_routing_graph(
+  const lanelet::LaneletMapPtr & map, const lanelet::traffic_rules::TrafficRules & traffic_rules)
+{
+  auto reduced_map = std::make_shared<lanelet::LaneletMap>();
+  for (const auto & lanelet : map->laneletLayer) {
+    if (isUturnLanelet(lanelet)) {
+      continue;
+    }
+    reduced_map->add(lanelet);
+  }
+  return lanelet::routing::RoutingGraph::build(*reduced_map, traffic_rules);
+}
+
 bool exists(const std::vector<LaneletPrimitive> & primitives, const int64_t & id)
 {
   for (const auto & p : primitives) {
@@ -259,6 +293,12 @@ void RouteHandler::setMap(const LaneletMapBin & map_msg)
   overall_graphs_ptr_ =
     std::make_shared<const lanelet::routing::RoutingGraphContainer>(overall_graphs);
   lanelet::ConstLanelets all_lanelets = lanelet::utils::query::laneletLayer(lanelet_map_ptr_);
+
+  // U-turn lanelets of the map, if any, are excluded from the graph that is used to plan forward
+  // routes only (see planPathLaneletsBetweenCheckpoints())
+  if (has_uturn_lanelets(lanelet_map_ptr_)) {
+    RCLCPP_INFO(logger_, "The map contains synthesized U-turn lanelets.");
+  }
 
   is_map_msg_ready_ = true;
   is_handler_ready_ = false;
@@ -2043,9 +2083,15 @@ lanelet::ConstLanelets RouteHandler::getNeighborsWithinRoute(
   return neighbors_within_route;
 }
 
+bool RouteHandler::hasUturnLanelets() const
+{
+  return has_uturn_lanelets(lanelet_map_ptr_);
+}
+
 bool RouteHandler::planPathLaneletsBetweenCheckpoints(
   const Pose & start_checkpoint, const Pose & goal_checkpoint,
-  lanelet::ConstLanelets * path_lanelets, const bool consider_no_drivable_lanes) const
+  lanelet::ConstLanelets * path_lanelets, const bool consider_no_drivable_lanes,
+  const bool allow_uturn, double * route_length) const
 {
   // Find lanelets for start point. First, find all lanelets containing the start point to calculate
   // all possible route later. It fails when the point is not located on any road lanelet (e.g. the
@@ -2139,6 +2185,14 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
   constexpr double yaw_threshold = M_PI / 2.0;
   constexpr double angle_diff_weight = 1000.0;
 
+  // With allow_uturn == false the synthesized U-turn lanelets are not part of the search space.
+  // The reduced graph is built on demand instead of being cached in a member, so that the layout
+  // of this class stays unchanged and dependent packages do not have to be rebuilt.
+  lanelet::routing::RoutingGraphConstPtr routing_graph = routing_graph_ptr_;
+  if (!allow_uturn && has_uturn_lanelets(lanelet_map_ptr_)) {
+    routing_graph = build_uturn_free_routing_graph(lanelet_map_ptr_, *traffic_rules_ptr_);
+  }
+
   for (const auto & st_llt : start_lanelets) {
     // check if the angle difference between start_checkpoint and start lanelet center line
     // orientation is in yaw_threshold range
@@ -2150,7 +2204,7 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
 
     bool is_proper_angle = angle_diff <= std::abs(yaw_threshold);
 
-    optional_route = routing_graph_ptr_->getRoute(st_llt, goal_lanelet, 0);
+    optional_route = routing_graph->getRoute(st_llt, goal_lanelet, 0);
     if (!optional_route || !is_proper_angle) {
       RCLCPP_DEBUG_STREAM(
         logger_, "Failed to find a proper route!"
@@ -2192,9 +2246,27 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
       return shortest_path;
     }();
 
+    // The forward-only search must never return a U-turn. The drivable lane fallback above builds
+    // its own graph, so the resulting path is checked as well.
+    if (
+      !allow_uturn &&
+      std::any_of(path.begin(), path.end(), [](const auto & llt) { return isUturnLanelet(llt); })) {
+      RCLCPP_DEBUG(
+        logger_, "A U-turn lanelet is contained although it is not allowed. Retrying without it.");
+      return false;
+    }
+
     path_lanelets->reserve(path.size());
     for (const auto & llt : path) {
       path_lanelets->push_back(llt);
+    }
+
+    if (route_length) {
+      double length = 0.0;
+      for (const auto & llt : path) {
+        length += lanelet::geometry::length2d(llt);
+      }
+      *route_length = length;
     }
   } else {
     RCLCPP_ERROR_STREAM(

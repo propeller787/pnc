@@ -11,3 +11,5 @@
     consider_no_drivable_lanes: false # This flag is for considering no_drivable_lanes in planning or not.
     check_footprint_inside_lanes: true
     allow_reroute_in_autonomous_mode: true
+    enable_uturn_fallback: true # Plan a route through a U-turn lanelet when the goal cannot be reached by driving forward.
+    max_forward_detour_ratio: 0.0 # Also use a U-turn when the forward route is longer than this factor times the route with a U-turn. 0 keeps forward routes always.

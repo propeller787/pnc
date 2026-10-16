@@ -33,6 +33,7 @@
 
 #include "autoware/map_loader/lanelet2_map_loader_node.hpp"
 
+#include "autoware/map_loader/uturn_lanelet_injector.hpp"
 #include "lanelet2_local_projector.hpp"
 
 #include <autoware/geography_utils/lanelet2_projector.hpp>
@@ -48,6 +49,7 @@
 #include <lanelet2_io/Io.h>
 #include <lanelet2_projection/UTM.h>
 
+#include <filesystem>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -69,6 +71,19 @@ Lanelet2MapLoaderNode::Lanelet2MapLoaderNode(const rclcpp::NodeOptions & options
   declare_parameter<std::string>("lanelet2_map_path");
   declare_parameter<double>("center_line_resolution");
   declare_parameter<bool>("use_waypoints");
+
+  // parameters of the synthetic U-turn lanelets (see uturn_lanelet_injector.hpp).
+  // The defaults keep the previous behavior, i.e. no U-turn lanelet is added.
+  declare_parameter<bool>("uturn.enabled", false);
+  declare_parameter<std::string>("uturn.candidate_file", "");
+  declare_parameter<double>("uturn.wheel_base", 1.0);
+  declare_parameter<double>("uturn.max_steer_angle", 0.70);
+  declare_parameter<double>("uturn.radius_margin", 1.2);
+  declare_parameter<double>("uturn.arc_resolution", 0.2);
+  declare_parameter<double>("uturn.speed_limit_kmh", 5.0);
+  declare_parameter<double>("uturn.min_turn_angle_deg", 150.0);
+  declare_parameter<double>("uturn.max_turn_angle_deg", 210.0);
+  declare_parameter<int>("uturn.id_base", 2000000);
 }
 
 void Lanelet2MapLoaderNode::on_map_projector_info(
@@ -122,6 +137,10 @@ void Lanelet2MapLoaderNode::on_map_projector_info(
     lanelet::utils::overwriteLaneletsCenterline(map, center_line_resolution, false);
   }
 
+  // add synthetic U-turn lanelets. This must happen after the centerline overwrite, otherwise the
+  // U-turn arc would be replaced by a centerline resampled from its bounds.
+  inject_uturn_lanelets_if_enabled(map, lanelet2_filename);
+
   // create map bin msg
   const auto map_bin_msg = create_map_bin_msg(map, lanelet2_filename, now());
 
@@ -130,6 +149,40 @@ void Lanelet2MapLoaderNode::on_map_projector_info(
     create_publisher<VectorMap::Message>(VectorMap::name, rclcpp::QoS{1}.transient_local());
   pub_map_bin_->publish(map_bin_msg);
   RCLCPP_INFO(get_logger(), "Succeeded to load lanelet2_map. Map is published.");
+}
+
+void Lanelet2MapLoaderNode::inject_uturn_lanelets_if_enabled(
+  const lanelet::LaneletMapPtr & map, const std::string & lanelet2_filename)
+{
+  if (!get_parameter("uturn.enabled").as_bool()) {
+    return;
+  }
+
+  auto candidate_file = get_parameter("uturn.candidate_file").as_string();
+  if (candidate_file.empty()) {
+    candidate_file =
+      (std::filesystem::path(lanelet2_filename).parent_path() / "uturn_candidates.yaml").string();
+  }
+  if (!std::filesystem::exists(candidate_file)) {
+    RCLCPP_WARN(
+      get_logger(),
+      "U-turn is enabled but the whitelist '%s' does not exist. No U-turn spot is added.",
+      candidate_file.c_str());
+    return;
+  }
+
+  UturnParams params;
+  params.wheel_base = get_parameter("uturn.wheel_base").as_double();
+  params.max_steer_angle = get_parameter("uturn.max_steer_angle").as_double();
+  params.radius_margin = get_parameter("uturn.radius_margin").as_double();
+  params.arc_resolution = get_parameter("uturn.arc_resolution").as_double();
+  params.speed_limit_kmh = get_parameter("uturn.speed_limit_kmh").as_double();
+  params.min_turn_angle_deg = get_parameter("uturn.min_turn_angle_deg").as_double();
+  params.max_turn_angle_deg = get_parameter("uturn.max_turn_angle_deg").as_double();
+  params.id_base = static_cast<lanelet::Id>(get_parameter("uturn.id_base").as_int());
+
+  const auto candidates = load_uturn_candidates(candidate_file, map, get_logger());
+  inject_uturn_lanelets(map, candidates, params, get_logger());
 }
 
 lanelet::LaneletMapPtr Lanelet2MapLoaderNode::load_map(

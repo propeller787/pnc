@@ -47,6 +47,15 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_${PROJECT_NAME}
     autoware_test_utils
   )
+
+  # Does not depend on autoware_test_utils on purpose: the U-turn fallback only needs the packages
+  # of this repository.
+  ament_add_ros_isolated_gtest(test_${PROJECT_NAME}_uturn
+  test/test_uturn_fallback.cpp
+  )
+  target_link_libraries(test_${PROJECT_NAME}_uturn
+    ${PROJECT_NAME}_lanelet2_plugins
+  )
 endif()
 
 ament_auto_package(

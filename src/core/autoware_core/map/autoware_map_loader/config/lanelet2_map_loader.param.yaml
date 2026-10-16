@@ -4,3 +4,17 @@
     center_line_resolution: 5.0                 # [m]
     use_waypoints: true                         # "centerline" in the Lanelet2 map will be used as a "waypoints" tag.
     lanelet2_map_path: $(var lanelet2_map_path) # The lanelet2 map path
+
+    # U-turn support: one synthetic single-arc U-turn lanelet per spot of the whitelist
+    # <lanelet2 map directory>/uturn_candidates.yaml. Disabled by default.
+    uturn:
+      enabled: false
+      candidate_file: ""      # empty: <lanelet2_map_path directory>/uturn_candidates.yaml
+      wheel_base: 1.00        # [m] must match vehicle_info.param.yaml
+      max_steer_angle: 0.70   # [rad] must match vehicle_info.param.yaml
+      radius_margin: 1.2
+      arc_resolution: 0.2     # [m]
+      speed_limit_kmh: 5.0
+      min_turn_angle_deg: 150.0
+      max_turn_angle_deg: 210.0
+      id_base: 2000000

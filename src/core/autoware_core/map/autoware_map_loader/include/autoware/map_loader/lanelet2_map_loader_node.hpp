@@ -49,6 +49,11 @@ private:
   using VectorMap = autoware::component_interface_specs::map::VectorMap;
   void on_map_projector_info(const MapProjectorInfo::Message::ConstSharedPtr msg);
 
+  //! Adds one synthetic U-turn lanelet per spot of the operator maintained whitelist. Does nothing
+  //! unless the "uturn.enabled" parameter is true.
+  void inject_uturn_lanelets_if_enabled(
+    const lanelet::LaneletMapPtr & map, const std::string & lanelet2_filename);
+
   rclcpp::Subscription<MapProjectorInfo::Message>::SharedPtr sub_map_projector_info_;
   rclcpp::Publisher<VectorMap::Message>::SharedPtr pub_map_bin_;
 };

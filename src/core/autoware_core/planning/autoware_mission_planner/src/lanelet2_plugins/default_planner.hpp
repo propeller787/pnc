@@ -38,6 +38,11 @@ struct DefaultPlannerParameters
   bool enable_correct_goal_pose;
   bool consider_no_drivable_lanes;
   bool check_footprint_inside_lanes;
+  //! if true, a route through a U-turn lanelet is planned when no forward route exists
+  bool enable_uturn_fallback;
+  //! plan a route through a U-turn when the forward route is more than this factor longer than the
+  //! route with a U-turn. 0 disables the check, i.e. forward routes always win.
+  double max_forward_detour_ratio;
 };
 
 class DefaultPlanner : public mission_planner::PlannerPlugin

@@ -1,0 +1,28 @@
+# 免 RViz 自动规划输入——必掉头场景（掉头功能验证）
+# 坐标系：map（与 sample-map-planning_local-0828 一致）
+# orientation 为四元数；yaw 单位为弧度。
+#
+# 机制：掉头 spot 为 lanelet 802(西行) -> 826(东行)，地图加载时注入合成掉头 lanelet。
+# 起点 A 落在 802（朝西），目标 G 落在 809（东行长直道，x≈402,y≈-390.47）。
+#  前向(不开掉头)路由从 802 出发只能到西/北侧，无法到达东行的 809；
+#  唯一路径是 802 -> 掉头 -> 826 -> 809，故 mission_planner 必然打印
+#  "No route without a U-turn exists. Planning with a U-turn."。
+# 车到位后掉头驶入东行 809，沿直道到达 G。
+
+initial_pose:                    # 起点 A = lanelet 802 东端中部，朝正西进 802
+  position:
+    x: 391.866
+    y: -386.380
+    z: -1.4234
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: 1.0
+    w: 0.0
+
+waypoints:                       # 最后一个为 goal（G），其余为途经点
+  - name: G                      # lanelet 809 中段（掉头后的东行长直道），朝东
+    x: 402.0
+    y: -390.47
+    z: -1.36
+    yaw: 0.0
