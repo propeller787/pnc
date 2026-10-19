@@ -225,21 +225,41 @@ size_t sample_count(const TurnGeometry & geometry, const UturnParams & params)
 //! predecessor). The bound sweeps from the first cross section to the second one, so the lanelet
 //! covers the whole area that the cross sections sweep during the turn.
 //!
-//! Note: the cross sections of real maps are often wider than the turn. Both of their end points
-//! must be pinned for the routing graph, and then the lanelet polygon is self intersecting in the
-//! middle of the turn. Such a lanelet still routes and drives correctly (the driving line is the
-//! centerline), and it covers the driving line, which a narrow ribbon would not. It is reported as
-//! a warning instead of being dropped, see is_simple_polygon().
+//! The bounds of the U-turn are the arcs that the outer and inner corners of the cross sections
+//! sweep during the turn. Every cross section rotates together with the vehicle, so every bound
+//! has to sweep by the same angle as the turn, in the same direction. normalize_angle() only knows
+//! the two corners, so it is ambiguous exactly at 180 deg and it picks the wrong side of the
+//! circle for the outer bound (e.g. -175.9 deg instead of +184.1 deg).
+//!
+//! Adjacent lanes share the inner corner of the U-turn, so the first and the last point of the
+//! inner bound coincide. The drivable area of the U-turn is then a sector from that corner to the
+//! outer bound, and the inner bound is the corner itself. Emit both end points (the same point
+//! twice when the neighbours also share it) instead of one point: a line string with less than 2
+//! points is rejected by downstream modules (visualization, path bounds).
 lanelet::Points3d sample_bound(
   const lanelet::ConstPoint3d & first, const lanelet::ConstPoint3d & last,
   const TurnGeometry & geometry, const size_t samples, IdAllocator & ids)
 {
   const auto p0 = to_2d(first);
   const auto p1 = to_2d(last);
+
+  if ((p1 - p0).norm() < kMinChordLength) {
+    return {lanelet::Point3d(first), lanelet::Point3d(last)};
+  }
+
   const auto r0 = p0 - geometry.center;
   const auto r1 = p1 - geometry.center;
   const double phi_start = std::atan2(r0.y(), r0.x());
-  const double phi_delta = normalize_angle(std::atan2(r1.y(), r1.x()) - phi_start);
+  double phi_delta = normalize_angle(std::atan2(r1.y(), r1.x()) - phi_start);
+  // Every cross section rotates together with the vehicle, so every bound has to sweep in the
+  // direction of the turn. normalize_angle() picks the short way, which is the wrong side of the
+  // circle once the corners are more than 180 deg apart (e.g. -175.9 deg instead of +184.1 deg).
+  if (geometry.sweep > 0.0 && phi_delta < 0.0) {
+    phi_delta += 2.0 * M_PI;
+  } else if (geometry.sweep < 0.0 && phi_delta > 0.0) {
+    phi_delta -= 2.0 * M_PI;
+  }
+
   const double radius_start = r0.norm();
   const double radius_end = r1.norm();
 

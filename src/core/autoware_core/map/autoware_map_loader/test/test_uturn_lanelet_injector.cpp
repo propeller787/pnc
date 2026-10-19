@@ -19,6 +19,7 @@
 #include <autoware_map_msgs/msg/lanelet_map_bin.hpp>
 #include <gtest/gtest.h>
 #include <lanelet2_core/LaneletMap.h>
+#include <lanelet2_core/geometry/Lanelet.h>
 #include <lanelet2_core/primitives/Lanelet.h>
 #include <lanelet2_routing/Route.h>
 #include <lanelet2_routing/RoutingGraph.h>
@@ -298,6 +299,52 @@ TEST(TestUturnLaneletInjector, rejectsCandidatesThatTheVehicleCannotDrive)
       inject_uturn_lanelets(test_map.map, {candidate}, params, rclcpp::get_logger("test")), 0U);
     EXPECT_FALSE(test_map.uturn_lanelet().has_value());
   }
+}
+
+// Adjacent lanes with a running U-turn share their inner corner, exactly like lanelets 802 and 830
+// of the changzhou map. The inner bound degenerates to that corner, and the outer bound must sweep
+// around the side of the turn. Taking the short way sweeps it around the opposite side, so the
+// polygon covers the wrong lanes and the driving line (the centerline) ends up outside of it;
+// planning then stops the vehicle in front of the U-turn.
+TEST(TestUturnLaneletInjector, adjacentLanesWithSharedInnerCorner)
+{
+  const auto params = default_params();
+
+  // gap = 4.0: the entry end edge and the exit start edge are both centered at y = 2, so their
+  // left corners coincide and the turn center is that shared corner
+  const TestMap test_map(4.0);
+  ASSERT_EQ(
+    inject_uturn_lanelets(test_map.map, {test_map.candidate()}, params, rclcpp::get_logger("test")),
+    1U);
+
+  const auto uturn = test_map.uturn_lanelet();
+  ASSERT_TRUE(uturn.has_value());
+
+  // the inner bound starts and ends at the shared corner. It is kept as a (degenerate) two point
+  // line string because a one point bound is rejected by several downstream modules.
+  EXPECT_EQ(uturn->leftBound().size(), 2U);
+  EXPECT_GT(uturn->rightBound().size(), 8U);
+  EXPECT_NEAR(
+    std::hypot(
+      uturn->leftBound().front().x() - uturn->leftBound().back().x(),
+      uturn->leftBound().front().y() - uturn->leftBound().back().y()),
+    0.0, 1e-6)
+    << "the inner bound starts and ends at the shared corner";
+
+  // the turn center is the shared inner corner (4, 2) and the centerline bulges to the east
+  const lanelet::BasicPoint2d on_the_arc{6.0, 2.0};
+  const lanelet::BasicPoint2d on_the_wrong_side{2.0, 2.0};
+  EXPECT_TRUE(lanelet::geometry::inside(*uturn, on_the_arc))
+    << "the lanelet polygon has to contain the driving line of the U-turn";
+  EXPECT_FALSE(lanelet::geometry::inside(*uturn, on_the_wrong_side))
+    << "the lanelet polygon must not cover the lanes on the other side of the turn";
+
+  // and the neighbours still see it as successor/predecessor
+  const auto graph = test_map.routing_graph();
+  const auto entry = test_map.map->laneletLayer.get(kEntryId);
+  const auto exit = test_map.map->laneletLayer.get(kExitId);
+  EXPECT_TRUE(!!graph->getRoute(entry, *uturn, 0));
+  EXPECT_TRUE(!!graph->getRoute(*uturn, exit, 0));
 }
 
 TEST(TestUturnLaneletInjector, rejectsEmptyCandidateList)
